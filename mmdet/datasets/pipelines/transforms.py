@@ -219,8 +219,8 @@ class Resize(object):
         img_shape = results['img_shape']
         for key in results.get('kpt_fields', []):
             kpts = results[key]
-            kpts[:, :, 0] = kpts[:, :, 0] * results['scale_factor']
-            kpts[:, :, 1] = kpts[:, : ,1] * results['scale_factor']
+            kpts[:, :, 0] = kpts[:, :, 0] * results['scale_factor'][0]
+            kpts[:, :, 1] = kpts[:, : ,1] * results['scale_factor'][1]
             kpts[:, :, 0] = np.clip(kpts[:, :, 0], 0, img_shape[1] - 1)
             kpts[:, :, 1] = np.clip(kpts[:, :, 1], 0, img_shape[0] - 1)
             results[key] = kpts
@@ -301,7 +301,7 @@ class RandomFlip(object):
             'horizontal' and 'vertical'. Default: 'horizontal'.
     """
 
-    def __init__(self, flip_ratio=None, direction='horizontal'):
+    def __init__(self, flip_ratio=None, kpt_flip_index=None, direction='horizontal'):
         self.flip_ratio = flip_ratio
         self.direction = direction
         if flip_ratio is not None:

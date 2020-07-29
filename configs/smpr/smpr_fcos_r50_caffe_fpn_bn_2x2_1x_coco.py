@@ -5,7 +5,7 @@ _base_ = [
 
 model = dict(
     type='SMPR', # The name of detector
-    pretrained='open-mmlab://resnet50_caffe',
+    pretrained='open-mmlab://detectron/resnet50_caffe',
     backbone=dict(
         type='ResNet',
         depth=50,
@@ -98,8 +98,8 @@ test_pipeline = [
 ]
 
 data = dict(
-    samples_per_gpu=2,
-    workers_per_gpu=2,
+    samples_per_gpu=1,
+    workers_per_gpu=1,
     train=dict(
         type=dataset_type,
         # ann_file=data_root + 'annotations/instances_train2017.json',
@@ -125,7 +125,7 @@ optimizer = dict(
     lr=0.005,
     momentum=0.9,
     weight_decay=0.0001,
-    paramwise_options=dict(bias_lr_mult=2., bias_decay_mult=0.))
+    paramwise_cfg=dict(bias_lr_mult=2., bias_decay_mult=0.))
 optimizer_config = dict(grad_clip=None)
 # learning policy
 lr_config = dict(

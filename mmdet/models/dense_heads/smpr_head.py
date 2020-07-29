@@ -24,30 +24,30 @@ class FeatureAdaption(nn.Module):
         in_channels (int): Number of channels in the input feature map.
         out_channels (int): Number of channels in the output feature map.
         kernel_size (int): Deformable conv kernel size.
-        deformable_groups (int): Deformable conv group size.
+        deform_groups (int): Deformable conv group size.
     """
 
     def __init__(self,
                  in_channels,
                  out_channels,
                  kernel_size=3,
-                 deformable_groups=4):
+                 deform_groups=4):
         super(FeatureAdaption, self).__init__()
         offset_channels = kernel_size * kernel_size * 2
         self.conv_offset = nn.Conv2d(
-            34, deformable_groups * offset_channels, 1, bias=False)
+            34, deform_groups * offset_channels, 1, bias=False)
         self.conv_adaption_reg = DeformConv2d(
             in_channels,
             out_channels,
             kernel_size=kernel_size,
             padding=(kernel_size - 1) // 2,
-            deformable_groups=deformable_groups)
+            deform_groups=deform_groups)
         self.conv_adaption_cls = DeformConv2d(
             in_channels,
             out_channels,
             kernel_size=kernel_size,
             padding=(kernel_size - 1) // 2,
-            deformable_groups=deformable_groups)
+            deform_groups=deform_groups)
         self.relu_1 = nn.ReLU(inplace=True)
         self.relu_2 = nn.ReLU(inplace=True)
 
@@ -165,7 +165,7 @@ class SMPRHead(nn.Module):
             256,
             256,
             kernel_size=3,
-            deformable_groups=4)
+            deform_groups=4)
         self.fcos_refine_out = nn.Conv2d(self.feat_channels, 34, 3, padding=1)
 
     def init_weights(self):
