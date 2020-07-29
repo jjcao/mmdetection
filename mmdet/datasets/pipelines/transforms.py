@@ -590,6 +590,9 @@ class RandomCrop(object):
             if label_key in results:
                 results[label_key] = results[label_key][valid_inds]
 
+            if (key == 'gt_bboxes' and 'gt_kpts' in results):
+                results['gt_kpts'] = results['gt_kpts'][valid_inds]
+
             # mask fields, e.g. gt_masks and gt_masks_ignore
             mask_key = self.bbox2mask.get(key)
             if mask_key in results:
