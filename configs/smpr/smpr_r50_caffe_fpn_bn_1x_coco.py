@@ -36,7 +36,7 @@ model = dict(
             alpha=0.25,
             loss_weight=1.0),
         loss_kpt_init=dict(type='KptSmoothL1Loss', beta=0.11, loss_weight=0.05),
-        loss_kpt_refine=dict(type='KptSmoothL1Loss', beta=0.11, loss_weight=0.1),
+        loss_kpt_refine=dict(type='KptSmoothL1Loss', beta=0.11, loss_weight=0.1), # question of jjcao, why not loss_weight=1.0
         loss_centerness=dict(
             type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
         center_sampling=True,
