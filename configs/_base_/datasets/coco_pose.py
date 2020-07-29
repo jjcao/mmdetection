@@ -11,7 +11,7 @@ train_pipeline = [
     dict(type='LoadAnnotations', with_bbox=True, with_kpt=True),
     dict(type='Resize', img_scale=(1333, 800), keep_ratio=True),
     dict(type='RandomFlip', flip_ratio=0.5, kpt_flip_index=coco_flip_index),
-    #dict(type='RandomCrop', crop_size=(800, 800)),
+    dict(type='RandomCrop', crop_size=(800, 800)),
     dict(type='Normalize', **img_norm_cfg),
     dict(type='Pad', size_divisor=32),
     dict(type='DefaultFormatBundle'),
