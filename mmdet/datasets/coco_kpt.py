@@ -5,18 +5,18 @@ import tempfile
 
 import mmcv
 import numpy as np
-from mmdet.utils import print_log
+from mmcv.utils import print_log
 from pycocotools.coco import COCO
 from pycocotools.cocoeval import COCOeval
 #from terminaltables import AsciiTable
 
 from mmdet.core import eval_recalls
-from .registry import DATASETS
+from .builder import DATASETS
 from .custom import CustomDataset
 
 
 @DATASETS.register_module()
-class CocoKpt(CustomDataset):
+class CocoKptDataset(CustomDataset):
 
     CLASSES = ('person', )
 
