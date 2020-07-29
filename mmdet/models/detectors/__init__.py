@@ -18,10 +18,12 @@ from .retinanet import RetinaNet
 from .rpn import RPN
 from .single_stage import SingleStageDetector
 from .two_stage import TwoStageDetector
+from .single_stage_kpt import SingleStageDetector_kpt
+from .smpr import SMPR
 
 __all__ = [
     'ATSS', 'BaseDetector', 'SingleStageDetector', 'TwoStageDetector', 'RPN',
     'FastRCNN', 'FasterRCNN', 'MaskRCNN', 'CascadeRCNN', 'HybridTaskCascade',
     'RetinaNet', 'FCOS', 'GridRCNN', 'MaskScoringRCNN', 'RepPointsDetector',
-    'FOVEA', 'FSAF', 'NASFCOS', 'PointRend', 'GFL'
+    'FOVEA', 'FSAF', 'NASFCOS', 'PointRend', 'GFL', 'SingleStageDetector_kpt', 'SMPR'
 ]

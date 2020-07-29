@@ -1,12 +1,10 @@
-
 _base_ = [
-    '../_base_/datasets/coco_pose.py',
-    '../_base_/schedules/schedule_1x.py', 
-    '../_base_/default_runtime.py'
+    #'../_base_/datasets/coco_pose.py',
+    '../_base_/schedules/schedule_1x.py', '../_base_/default_runtime.py'
 ]
 
 model = dict(
-    type='smpr', # The name of detector
+    type='SMPR', # The name of detector
     pretrained='open-mmlab://resnet50_caffe',
     backbone=dict(
         type='ResNet',
@@ -26,7 +24,7 @@ model = dict(
         num_outs=5,
         relu_before_extra_convs=True),
     bbox_head=dict(
-        type='FCOSHead_kpt',
+        type='SMPRHead',
         num_classes=2,
         in_channels=256,
         stacked_convs=4,
@@ -63,6 +61,13 @@ test_cfg = dict(
     nms=dict(type='nms', iou_thr=0.5),
     max_per_img=20)
 
+
+# dataset settings
+dataset_type = 'CocoKptDataset'
+data_root = '../../coco/'
+
+coco_flip_index = [0, 2, 1, 4, 3, 6, 5, 8, 7, 10, 9, 12, 11, 14, 13, 16, 15]
+
 img_norm_cfg = dict(
     mean=[102.9801, 115.9465, 122.7717], std=[1.0, 1.0, 1.0], to_rgb=False)
 train_pipeline = [
@@ -93,11 +98,26 @@ test_pipeline = [
 ]
 
 data = dict(
-    samples_per_gpu=4,
-    workers_per_gpu=4,
-    train=dict(pipeline=train_pipeline),
-    val=dict(pipeline=test_pipeline),
-    test=dict(pipeline=test_pipeline))
+    samples_per_gpu=2,
+    workers_per_gpu=2,
+    train=dict(
+        type=dataset_type,
+        # ann_file=data_root + 'annotations/instances_train2017.json',
+        ann_file=data_root + 'annotations/person_keypoints_train2017_pesudobox.json',
+        img_prefix=data_root + 'train2017/',
+        pipeline=train_pipeline),
+    val=dict(
+        type=dataset_type,
+        # ann_file=data_root + 'annotations/instances_val2017.json',
+        ann_file=data_root + 'annotations/person_keypoints_val2017.json',
+        img_prefix=data_root + 'val2017/',
+        pipeline=test_pipeline),
+    test=dict(
+        type=dataset_type,
+        ann_file=data_root + 'annotations/person_keypoints_val2017.json',
+        img_prefix=data_root + 'val2017/',
+        pipeline=test_pipeline))
+evaluation = dict(interval=1, metric='keypoints')
 
 # optimizer
 optimizer = dict(

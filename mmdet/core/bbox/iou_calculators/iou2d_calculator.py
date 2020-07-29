@@ -128,3 +128,42 @@ def bbox_overlaps(bboxes1, bboxes2, mode='iou', is_aligned=False, eps=1e-6):
     ious = overlap / union
 
     return ious
+
+def kpt_oks(kpts1, kpts2, img_meta, mode='oks', is_aligned=False):
+    """
+    Args:
+        kpts1 (Tensor): shape (m, 34) in <x1, y1, x2, y2, ...> format.
+        kpts2 (Tensor): shape (n, 34) in <x1, y1, x2, y2, ...> format.
+            If is_aligned is ``True``, then m and n must be equal.
+        mode (str): "iou" (intersection over union) or iof (intersection over
+            foreground).
+    """
+
+    kpt_oks_sigmas = torch.Tensor([.26, .25, .25, .35, .35,
+                           .79, .79, .72, .72, .62, .62, 1.07, 1.07, .87, .87, .89, .89]) / 10.0
+    variances = (kpt_oks_sigmas * 2) ** 2
+    rows = kpts1.size(0)
+    cols = kpts2.size(0)
+    if rows * cols == 0:
+        return kpts1.new(rows, 1) if is_aligned else kpts1.new(rows, cols)
+    if is_aligned:
+        raise NotImplementedError
+    import ipdb; ipdb.set_trace()
+    kpts2 = kpts2.reshape(-1, 17, 2)
+    oks_list = []
+    img_shape = img_meta['pad_shape']
+    area = img_shape[0] * img_shape[1]
+    area = torch.tensor(area, device=kpts1.device)
+    variances = variances.to(kpts1.device)
+
+    for i in range(rows):
+        import ipdb; ipdb.set_trace()
+        squared_distance = (kpts1[i, None, :, 0] - kpts2[:, :, 0]) ** 2 + \
+            (kpts1[i, None, :, 1] - kpts2[:, :, 1]) ** 2 
+        vis_flag = (kpts1[i, :, 2] > 0).int()
+        num_vis_kpt = len(vis_flag.nonzero().reshape(-1))
+        squared_distance = squared_distance * vis_flag
+        squared_distance /= (area * variances * 2)
+        squared_distance = torch.exp(-squared_distance).sum(dim=1)
+        oks = squared_distance / num_vis_kpt
+        oks_list.append(oks)
