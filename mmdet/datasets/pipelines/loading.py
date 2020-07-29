@@ -183,6 +183,7 @@ class LoadAnnotations(object):
     def __init__(self,
                  with_bbox=True,
                  with_label=True,
+                 with_kpt=False,
                  with_mask=False,
                  with_seg=False,
                  poly2mask=True,
@@ -192,6 +193,7 @@ class LoadAnnotations(object):
         self.with_mask = with_mask
         self.with_seg = with_seg
         self.poly2mask = poly2mask
+        self.with_kpt = with_kpt
         self.file_client_args = file_client_args.copy()
         self.file_client = None
 
@@ -318,6 +320,12 @@ class LoadAnnotations(object):
         results['seg_fields'].append('gt_semantic_seg')
         return results
 
+    def _load_keypoints(self, results):
+        ann_info = results['ann_info']
+        results['gt_kpts'] = ann_info['keypoints']
+        results['kpt_fields'].append('gt_kpts')
+        return results
+
     def __call__(self, results):
         """Call function to load multiple types annotations.
 
@@ -339,6 +347,9 @@ class LoadAnnotations(object):
             results = self._load_masks(results)
         if self.with_seg:
             results = self._load_semantic_seg(results)
+        if self.with_kpt:
+            results = self._load_keypoints(results)
+            
         return results
 
     def __repr__(self):

@@ -215,6 +215,16 @@ class Resize(object):
             bboxes[:, 1::2] = np.clip(bboxes[:, 1::2], 0, img_shape[0])
             results[key] = bboxes
 
+    def _resize_kpts(self, results):
+        img_shape = results['img_shape']
+        for key in results.get('kpt_fields', []):
+            kpts = results[key]
+            kpts[:, :, 0] = kpts[:, :, 0] * results['scale_factor']
+            kpts[:, :, 1] = kpts[:, : ,1] * results['scale_factor']
+            kpts[:, :, 0] = np.clip(kpts[:, :, 0], 0, img_shape[1] - 1)
+            kpts[:, :, 1] = np.clip(kpts[:, :, 1], 0, img_shape[0] - 1)
+            results[key] = kpts
+
     def _resize_masks(self, results):
         """Resize masks with ``results['scale']``"""
         for key in results.get('mask_fields', []):
@@ -265,6 +275,7 @@ class Resize(object):
         self._resize_bboxes(results)
         self._resize_masks(results)
         self._resize_seg(results)
+        self._resize_kpts(results)
         return results
 
     def __repr__(self):
@@ -297,6 +308,8 @@ class RandomFlip(object):
             assert flip_ratio >= 0 and flip_ratio <= 1
         assert direction in ['horizontal', 'vertical']
 
+        self.kpt_flip_index = kpt_flip_index
+
     def bbox_flip(self, bboxes, img_shape, direction):
         """Flip bboxes horizontally.
 
@@ -323,6 +336,19 @@ class RandomFlip(object):
         else:
             raise ValueError(f"Invalid flipping direction '{direction}'")
         return flipped
+
+    def kpts_flip(self, kpts, img_shape):
+        w = img_shape[1]
+        _, h1, w1 = kpts.shape
+        assert h1 == 17 and w1 == 3
+        assert self.kpt_flip_index is not None
+        kpts = kpts[:, self.kpt_flip_index]
+        kpts[:, :, 0] = w - kpts[:, :, 0] - 1 
+        _, h2, w2 = kpts.shape
+        assert h2 == 17 and w2 == 3
+
+        return kpts 
+
 
     def __call__(self, results):
         """Call function to flip bounding boxes, masks, semantic segmentation
@@ -359,6 +385,12 @@ class RandomFlip(object):
             for key in results.get('seg_fields', []):
                 results[key] = mmcv.imflip(
                     results[key], direction=results['flip_direction'])
+                
+            # flip kpts
+            for key in results.get('kpt_fields', []):
+                results[key] = self.kpts_flip(results[key],
+                                              results['img_shape'])
+
         return results
 
     def __repr__(self):
@@ -564,6 +596,15 @@ class RandomCrop(object):
                 results[mask_key] = results[mask_key][
                     valid_inds.nonzero()[0]].crop(
                         np.asarray([crop_x1, crop_y1, crop_x2, crop_y2]))
+
+        # crop kpts accordingly and clip to image boundary
+        for key in results.get('kpt_fields', []):
+            kpts = results[key]
+            kpts[:, :, 0] = kpts[:, :, 0] - offset_w
+            kpts[:, :, 1] = kpts[:, :, 1] - offset_h
+            kpts[:, :, 0] = np.clip(kpts[:, :, 0], 0, img_shape[1] - 1)
+            kpts[:, :, 1] = np.clip(kpts[:, :, 1], 0, img_shape[0] - 1)
+            results[key] = kpts
 
         # crop semantic seg
         for key in results.get('seg_fields', []):
