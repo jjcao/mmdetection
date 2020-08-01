@@ -63,7 +63,7 @@ class FeatureAdaption(nn.Module):
         return reg_feat_refine, cls_feat_refine
 
 
-@HEADS.register_module
+@HEADS.register_module()
 class SMPRHead(nn.Module):
     """
     Fully Convolutional One-Stage Object Detection head from [1]_.

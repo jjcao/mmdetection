@@ -27,7 +27,7 @@ def kpt_smooth_l1_loss(pred, target, vis_flag, weight, beta, reduction='mean', a
 
     return loss
 
-@LOSSES.register_module
+@LOSSES.register_module()
 class KptSmoothL1Loss(nn.Module):
 
     def __init__(self, beta=1.0, reduction='mean', loss_weight=1.0):

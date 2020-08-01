@@ -4,7 +4,7 @@ _base_ = ['../_base_/datasets/coco_pose.py',
 
 model = dict(
     type='SMPR', # The name of detector
-    pretrained='open-mmlab://detectron/resnet50_caffe',
+    pretrained='open-mmlab://detectron/resnet50_caffe', 
     backbone=dict(
         type='ResNet',
         depth=50,
@@ -40,7 +40,8 @@ model = dict(
         loss_centerness=dict(
             type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
         center_sampling=True,
-        center_sample_radius=1.5))
+        center_sample_radius=1.5)
+)
 
 # training and testing settings
 train_cfg = dict(
@@ -60,13 +61,13 @@ test_cfg = dict(
     nms=dict(type='nms', iou_thr=0.5),
     max_per_img=20)
 
-# # dataset settings
-# data = dict(
-#     samples_per_gpu=1,
-#     workers_per_gpu=1)
+# dataset settings
+data = dict(
+    samples_per_gpu=4,
+    workers_per_gpu=4)
     
 # optimizer
-optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001,
+optimizer = dict(type='SGD', lr=0.0005, momentum=0.9, weight_decay=0.0001,
     paramwise_cfg=dict(bias_lr_mult=2., bias_decay_mult=0.) )
 optimizer_config = dict(grad_clip=None)
 # learning policy

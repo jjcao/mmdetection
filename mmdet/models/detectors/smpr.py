@@ -2,7 +2,7 @@ from ..builder import DETECTORS
 from .single_stage_kpt import SingleStageDetector_kpt
 
 
-@DETECTORS.register_module
+@DETECTORS.register_module()
 class SMPR(SingleStageDetector_kpt):
 
     def __init__(self,
