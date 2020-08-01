@@ -407,7 +407,10 @@ class SMPRHead(nn.Module):
         mlvl_kpts = torch.cat(mlvl_kpts)
         if rescale:
             mlvl_bboxes /= mlvl_bboxes.new_tensor(scale_factor)
-            mlvl_kpts /= mlvl_kpts.new_tensor(scale_factor)
+            #mlvl_kpts /= mlvl_kpts.new_tensor(scale_factor)
+            mlvl_kpts /= scale_factor[0]
+            # mlvl_kpts[:, :, 0] /= scale_factor[0]
+            # mlvl_kpts[:, :, 1] /= scale_factor[1]
 
         mlvl_scores = torch.cat(mlvl_scores)
         padding = mlvl_scores.new_zeros(mlvl_scores.shape[0], 1)
