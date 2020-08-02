@@ -61,12 +61,9 @@ test_cfg = dict(
     nms=dict(type='nms', iou_thr=0.5),
     max_per_img=20)
 
-# dataset settings
-data = dict(
-    samples_per_gpu=4,
-    workers_per_gpu=4)
     
 # optimizer
+# lr=0.005 for batchsize =8
 optimizer = dict(type='SGD', lr=0.001, momentum=0.9, weight_decay=0.0001,
     paramwise_cfg=dict(bias_lr_mult=2., bias_decay_mult=0.) )
 optimizer_config = dict(grad_clip=None)
