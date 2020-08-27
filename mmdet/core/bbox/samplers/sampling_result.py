@@ -4,13 +4,12 @@ from mmdet.utils import util_mixins
 
 
 class SamplingResult(util_mixins.NiceRepr):
-    """Bbox sampling result.
-
+    """
     Example:
         >>> # xdoctest: +IGNORE_WANT
         >>> from mmdet.core.bbox.samplers.sampling_result import *  # NOQA
         >>> self = SamplingResult.random(rng=10)
-        >>> print(f'self = {self}')
+        >>> print('self = {}'.format(self))
         self = <SamplingResult({
             'neg_bboxes': torch.Size([12, 4]),
             'neg_inds': tensor([ 0,  1,  2,  4,  5,  6,  7,  8,  9, 10, 11, 12]),
@@ -23,7 +22,7 @@ class SamplingResult(util_mixins.NiceRepr):
     """
 
     def __init__(self, pos_inds, neg_inds, bboxes, gt_bboxes, assign_result,
-                 gt_flags):
+                 gt_flags, max_overlaps):
         self.pos_inds = pos_inds
         self.neg_inds = neg_inds
         self.pos_bboxes = bboxes[pos_inds]
@@ -31,7 +30,13 @@ class SamplingResult(util_mixins.NiceRepr):
         self.pos_is_gt = gt_flags[pos_inds]
 
         self.num_gts = gt_bboxes.shape[0]
+
+        # gt_bboxes.shape = [11, 34]
+        # self.pos_assigned_gt_inds = [ 7, 10,  4,  4,  2,  0,  0,  0,  0, ..., 9,  1,  9]
+        # pos_inds.shape = 88
         self.pos_assigned_gt_inds = assign_result.gt_inds[pos_inds] - 1
+
+        self.max_overlaps = max_overlaps
 
         if gt_bboxes.numel() == 0:
             # hack for index error case
@@ -41,6 +46,7 @@ class SamplingResult(util_mixins.NiceRepr):
             if len(gt_bboxes.shape) < 2:
                 gt_bboxes = gt_bboxes.view(-1, 4)
 
+            # self.pos_gt_bboxes.shape = [88, 34]
             self.pos_gt_bboxes = gt_bboxes[self.pos_assigned_gt_inds, :]
 
         if assign_result.labels is not None:
@@ -50,17 +56,17 @@ class SamplingResult(util_mixins.NiceRepr):
 
     @property
     def bboxes(self):
-        """torch.Tensor: concatenated positive and negative boxes"""
         return torch.cat([self.pos_bboxes, self.neg_bboxes])
 
     def to(self, device):
-        """Change the device of the data inplace.
+        """
+        Change the device of the data inplace.
 
         Example:
             >>> self = SamplingResult.random()
-            >>> print(f'self = {self.to(None)}')
+            >>> print('self = {}'.format(self.to(None)))
             >>> # xdoctest: +REQUIRES(--gpu)
-            >>> print(f'self = {self.to(0)}')
+            >>> print('self = {}'.format(self.to(0)))
         """
         _dict = self.__dict__
         for key, value in _dict.items():
@@ -72,13 +78,15 @@ class SamplingResult(util_mixins.NiceRepr):
         data = self.info.copy()
         data['pos_bboxes'] = data.pop('pos_bboxes').shape
         data['neg_bboxes'] = data.pop('neg_bboxes').shape
-        parts = [f"'{k}': {v!r}" for k, v in sorted(data.items())]
+        parts = ['\'{}\': {!r}'.format(k, v) for k, v in sorted(data.items())]
         body = '    ' + ',\n    '.join(parts)
         return '{\n' + body + '\n}'
 
     @property
     def info(self):
-        """Returns a dictionary of info about the object."""
+        """
+        Returns a dictionary of info about the object
+        """
         return {
             'pos_inds': self.pos_inds,
             'neg_inds': self.neg_inds,
@@ -93,18 +101,19 @@ class SamplingResult(util_mixins.NiceRepr):
     def random(cls, rng=None, **kwargs):
         """
         Args:
-            rng (None | int | numpy.random.RandomState): seed or state.
-            kwargs (keyword arguments):
-                - num_preds: number of predicted boxes
-                - num_gts: number of true boxes
-                - p_ignore (float): probability of a predicted box assinged to \
-                    an ignored truth.
-                - p_assigned (float): probability of a predicted box not being \
-                    assigned.
-                - p_use_label (float | bool): with labels or not.
+            rng (None | int | numpy.random.RandomState): seed or state
+
+        Kwargs:
+            num_preds: number of predicted boxes
+            num_gts: number of true boxes
+            p_ignore (float): probability of a predicted box assinged to an
+                ignored truth
+            p_assigned (float): probability of a predicted box not being
+                assigned
+            p_use_label (float | bool): with labels or not
 
         Returns:
-            :obj:`SamplingResult`: Randomly generated sampling result.
+            AssignResult :
 
         Example:
             >>> from mmdet.core.bbox.samplers.sampling_result import *  # NOQA
@@ -145,7 +154,7 @@ class SamplingResult(util_mixins.NiceRepr):
         sampler = RandomSampler(
             num,
             pos_fraction,
-            neg_pos_ub=neg_pos_ub,
+            neg_pos_ubo=neg_pos_ub,
             add_gt_as_proposals=add_gt_as_proposals,
             rng=rng)
         self = sampler.sample(assign_result, bboxes, gt_bboxes, gt_labels)

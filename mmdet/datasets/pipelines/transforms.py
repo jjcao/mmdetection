@@ -225,15 +225,20 @@ class Resize(object):
             kpts[:, :, 1] = np.clip(kpts[:, :, 1], 0, img_shape[0] - 1)
             results[key] = kpts
 
+    def _resize_areas(self, results):
+        for key in results.get('area_fields', []):
+            areas = results[key]
+            areas = areas * (results['scale_factor'][0] ** 2)
+            results[key] = areas
+
     def _resize_masks(self, results):
-        """Resize masks with ``results['scale']``"""
         for key in results.get('mask_fields', []):
             if results[key] is None:
                 continue
             if self.keep_ratio:
                 results[key] = results[key].rescale(results['scale'])
             else:
-                results[key] = results[key].resize(results['img_shape'][:2])
+                results[key] = results[key].resize(results['scale'])
 
     def _resize_seg(self, results):
         """Resize semantic segmentation map with ``results['scale']``."""
@@ -379,7 +384,12 @@ class RandomFlip(object):
                                               results['flip_direction'])
             # flip masks
             for key in results.get('mask_fields', []):
-                results[key] = results[key].flip(results['flip_direction'])
+                if results[key] is None:
+                    continue
+                results[key] = np.stack([
+                    mmcv.imflip(mask, direction=results['flip_direction'])
+                    for mask in results[key]
+                ])
 
             # flip segs
             for key in results.get('seg_fields', []):
@@ -437,8 +447,20 @@ class Pad(object):
         """Pad masks according to ``results['pad_shape']``."""
         pad_shape = results['pad_shape'][:2]
         for key in results.get('mask_fields', []):
-            results[key] = results[key].pad(pad_shape, pad_val=self.pad_val)
+            if results[key] is None:
+                continue
+            padded_masks = [
+                mmcv.impad(mask, shape=pad_shape, pad_val=self.pad_val)
+                for mask in results[key]
+            ]
+            if padded_masks:
+                results[key] = np.stack(padded_masks, axis=0)
+            else:
+                results[key] = np.empty((0, ) + pad_shape, dtype=np.uint8)
 
+            # if results[key] is None:
+            #     continue
+  
     def _pad_seg(self, results):
         """Pad semantic segmentation map according to
         ``results['pad_shape']``."""
@@ -593,12 +615,8 @@ class RandomCrop(object):
             if (key == 'gt_bboxes' and 'gt_kpts' in results):
                 results['gt_kpts'] = results['gt_kpts'][valid_inds]
 
-            # mask fields, e.g. gt_masks and gt_masks_ignore
-            mask_key = self.bbox2mask.get(key)
-            if mask_key in results:
-                results[mask_key] = results[mask_key][
-                    valid_inds.nonzero()[0]].crop(
-                        np.asarray([crop_x1, crop_y1, crop_x2, crop_y2]))
+            if (key == 'gt_bboxes' and 'gt_masks' in results):
+                results['gt_masks'] = results['gt_masks'][valid_inds]
 
         # crop kpts accordingly and clip to image boundary
         for key in results.get('kpt_fields', []):
@@ -608,6 +626,16 @@ class RandomCrop(object):
             kpts[:, :, 0] = np.clip(kpts[:, :, 0], 0, img_shape[1] - 1)
             kpts[:, :, 1] = np.clip(kpts[:, :, 1], 0, img_shape[0] - 1)
             results[key] = kpts
+
+        # mask fields, e.g. gt_masks and gt_masks_ignore
+        for key in results.get('mask_fields', []):
+            if results[key] is None:
+                continue
+            masks = [
+                mask[crop_y1:crop_y2, crop_x1:crop_x2]
+                for mask in results[key]
+            ]
+            results[key] = np.stack(masks)
 
         # crop semantic seg
         for key in results.get('seg_fields', []):
@@ -821,6 +849,8 @@ class Expand(object):
 
         # expand masks
         for key in results.get('mask_fields', []):
+            if results[key] is None:
+                continue
             results[key] = results[key].expand(
                 int(h * ratio), int(w * ratio), top, left)
 

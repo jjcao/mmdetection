@@ -186,16 +186,15 @@ class LoadAnnotations(object):
                  with_kpt=False,
                  with_mask=False,
                  with_seg=False,
-                 poly2mask=True,
-                 file_client_args=dict(backend='disk')):
+                 poly2mask=True):
         self.with_bbox = with_bbox
         self.with_label = with_label
         self.with_mask = with_mask
         self.with_seg = with_seg
         self.poly2mask = poly2mask
         self.with_kpt = with_kpt
-        self.file_client_args = file_client_args.copy()
-        self.file_client = None
+        self.with_area = True
+        # self.with_area = False
 
     def _load_bboxes(self, results):
         """Private function to load bounding box annotations.
@@ -326,6 +325,12 @@ class LoadAnnotations(object):
         results['kpt_fields'].append('gt_kpts')
         return results
 
+    def _load_areas(self, results):
+        ann_info = results['ann_info']
+        results['gt_masks_areas'] = ann_info['areas']
+        results['area_fields'].append('gt_masks_areas')
+        return results
+        
     def __call__(self, results):
         """Call function to load multiple types annotations.
 
@@ -349,7 +354,8 @@ class LoadAnnotations(object):
             results = self._load_semantic_seg(results)
         if self.with_kpt:
             results = self._load_keypoints(results)
-            
+        if self.with_area:
+            results = self._load_areas(results)            
         return results
 
     def __repr__(self):

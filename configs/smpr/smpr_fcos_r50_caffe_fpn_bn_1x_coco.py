@@ -36,9 +36,10 @@ model = dict(
             alpha=0.25,
             loss_weight=1.0),
         loss_kpt_init=dict(type='KptSmoothL1Loss', beta=0.11, loss_weight=0.05),
-        loss_kpt_refine=dict(type='KptSmoothL1Loss', beta=0.11, loss_weight=0.1), # question of jjcao, why not loss_weight=1.0
-        loss_centerness=dict(
-            type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
+        loss_kpt_refine=dict(type='KptSmoothL1Loss', beta=0.11, loss_weight=0.1), 
+        # jjcao, todo, now centerness is always here for the smpr_head.py
+        # loss_centerness=dict(
+        #     type='CrossEntropyLoss', use_sigmoid=True, loss_weight=1.0),
         center_sampling=True,
         center_sample_radius=1.5)
 )
@@ -54,24 +55,37 @@ train_cfg = dict(
     allowed_border=-1,
     pos_weight=-1,
     debug=False)
+# test_cfg = dict(
+#     nms_pre=1000,
+#     min_bbox_size=0,
+#     score_thr=0.1,
+#     nms=dict(type='nms', iou_thr=0.5),
+#     max_per_img=20)
 test_cfg = dict(
-    nms_pre=1000,
+    nms_pre=100,
     min_bbox_size=0,
-    score_thr=0.1,
-    nms=dict(type='nms', iou_thr=0.5),
+    score_thr=0.2,
+    nms=dict(type='soft_nms', iou_thr=0.3),
     max_per_img=20)
 
     
 # optimizer
 # lr=0.005 for batchsize =8
-optimizer = dict(type='SGD', lr=0.001, momentum=0.9, weight_decay=0.0001,
+optimizer = dict(type='SGD', lr=0.005, momentum=0.9, weight_decay=0.0001,
     paramwise_cfg=dict(bias_lr_mult=2., bias_decay_mult=0.) )
-optimizer_config = dict(grad_clip=None)
+#optimizer_config = dict(grad_clip=None)
+optimizer_config = dict(
+    _delete_=True, grad_clip=dict(max_norm=35, norm_type=2))
+
 # learning policy
 lr_config = dict(policy='step', warmup='constant',
-    warmup_iters=500, warmup_ratio=1.0 / 3, step=[21, 24])
+    warmup_iters=500, warmup_ratio=1.0 / 3, step=[25, 28])
 
-total_epochs = 25
+total_epochs = 31
 
 # runtime settings
 work_dir = './work_dirs/smpr'
+
+# yapf:disable
+log_config = dict(interval=100)
+# yapf:enable

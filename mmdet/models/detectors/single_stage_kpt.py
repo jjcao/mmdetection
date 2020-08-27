@@ -63,11 +63,13 @@ class SingleStageDetector_kpt(BaseDetector):
                       gt_bboxes,
                       gt_kpts,
                       gt_labels,
+                      gt_masks_areas,
                       gt_bboxes_ignore=None):
         x = self.extract_feat(img)
-        outs = self.bbox_head(x)
-        loss_inputs = outs + (gt_bboxes, gt_kpts, gt_labels, img_metas, self.train_cfg)
+        outs = self.bbox_head(x)   
         # loss_inputs = outs + (gt_bboxes, gt_labels, img_metas, self.train_cfg)
+        #loss_inputs = outs + (gt_bboxes, gt_kpts, gt_labels, img_metas, self.train_cfg)
+        loss_inputs = outs + (gt_bboxes, gt_kpts, gt_labels, gt_masks_areas, img_metas, self.train_cfg)
         losses = self.bbox_head.loss(
             *loss_inputs, gt_bboxes_ignore=gt_bboxes_ignore)
         return losses

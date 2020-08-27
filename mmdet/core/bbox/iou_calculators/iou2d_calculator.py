@@ -129,7 +129,7 @@ def bbox_overlaps(bboxes1, bboxes2, mode='iou', is_aligned=False, eps=1e-6):
 
     return ious
 
-def kpt_oks(kpts1, kpts2, img_meta, mode='oks', is_aligned=False):
+def kpt_oks(kpts1, kpts2, gt_masks_areas, mode='oks', is_aligned=False, eps=1e-6):
     """
     Args:
         kpts1 (Tensor): shape (m, 34) in <x1, y1, x2, y2, ...> format.
@@ -139,31 +139,87 @@ def kpt_oks(kpts1, kpts2, img_meta, mode='oks', is_aligned=False):
             foreground).
     """
 
-    kpt_oks_sigmas = torch.Tensor([.26, .25, .25, .35, .35,
-                           .79, .79, .72, .72, .62, .62, 1.07, 1.07, .87, .87, .89, .89]) / 10.0
+    kpt_oks_sigmas = torch.Tensor([.26, .25, .25, .35, .35, .79, .79, .72,
+                                   .72, .62, .62, 1.07, 1.07, .87, .87, .89, .89]) / 10.0
     variances = (kpt_oks_sigmas * 2) ** 2
     rows = kpts1.size(0)
     cols = kpts2.size(0)
     if rows * cols == 0:
         return kpts1.new(rows, 1) if is_aligned else kpts1.new(rows, cols)
-    if is_aligned:
-        raise NotImplementedError
-    import ipdb; ipdb.set_trace()
+
     kpts2 = kpts2.reshape(-1, 17, 2)
     oks_list = []
-    img_shape = img_meta['pad_shape']
-    area = img_shape[0] * img_shape[1]
-    area = torch.tensor(area, device=kpts1.device)
+
     variances = variances.to(kpts1.device)
 
+    oks_all = torch.zeros(rows, cols, device=kpts1.device)
+
     for i in range(rows):
-        import ipdb; ipdb.set_trace()
+        # import ipdb; ipdb.set_trace()
         squared_distance = (kpts1[i, None, :, 0] - kpts2[:, :, 0]) ** 2 + \
             (kpts1[i, None, :, 1] - kpts2[:, :, 1]) ** 2 
         vis_flag = (kpts1[i, :, 2] > 0).int()
-        num_vis_kpt = len(vis_flag.nonzero().reshape(-1))
-        squared_distance = squared_distance * vis_flag
-        squared_distance /= (area * variances * 2)
-        squared_distance = torch.exp(-squared_distance).sum(dim=1)
-        oks = squared_distance / num_vis_kpt
-        oks_list.append(oks)
+        vis_ind = vis_flag.nonzero()[:, 0]
+        num_vis_kpt = vis_ind.shape[0]
+
+        area = gt_masks_areas[i]
+        # x = kpts1[i, :, 0][vis_ind]
+        # y = kpts1[i, :, 1][vis_ind]
+        # x1 = x.min()
+        # y1 = y.min()
+        # x2 = x.max()
+        # y2 = y.max()
+        # w = (x2 - x1)
+        # h = (y2 - y1)
+        # w = (x2 - x1).clamp(min=0)
+        # h = (y2 - y1).clamp(min=0)
+        # area = w * h
+        # eps = area.new_tensor([eps])
+        # area = torch.max(area, eps)
+
+        squared_distance0 = squared_distance / area / variances / 2
+        squared_distance0 = squared_distance0[:, vis_ind]
+        squared_distance1 = torch.exp(-squared_distance0).sum(dim=1)
+        oks = squared_distance1 / num_vis_kpt
+        oks_all[i] = oks
+    return oks_all
+
+def _compute_oks(joints_gt, joints_pred, image_size=(160, 160)):
+    """Compute a object keypoint similarity for one example.
+    Args:
+        joints_gt: a numpy array of shape (num_joints, 3).
+        joints_pred: a numpy array of shape (num_joints, 3).
+        image_size: a tuple, (height, width).
+    Returns:
+        oks: float.
+    """
+
+    num_joints = joints_gt.shape[0]
+
+    x_gt = joints_gt[:, 0]
+    y_gt = joints_gt[:, 1]
+    # visibility of ground-truth joints
+    v_gt = joints_gt[:, 2]
+
+    x_pred = joints_pred[:, 0]
+    y_pred = joints_pred[:, 1]
+
+    area = image_size[0] * image_size[1]
+
+    squared_distance = (x_gt - x_pred) ** 2 + (y_gt - y_pred) ** 2
+
+    squared_distance /= (area * variances * 2)
+
+    oks = 0
+    count = 0
+
+    for i in range(num_joints):
+        if v_gt[i] > 0:
+            oks += np.exp(-squared_distance[i], dtype=np.float32)
+            count += 1
+
+    if count == 0:
+        return -1
+    else:
+        oks /= count
+        return oks

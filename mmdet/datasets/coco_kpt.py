@@ -69,6 +69,7 @@ class CocoKptDataset(CustomDataset):
         gt_bboxes_ignore = []
         gt_masks_ann = []
         gt_kpts = []
+        gt_masks_areas = []
 
         for i, ann in enumerate(ann_info):
             if ann.get('ignore', False):
@@ -86,6 +87,7 @@ class CocoKptDataset(CustomDataset):
                 gt_labels.append(self.cat2label[ann['category_id']])
                 gt_masks_ann.append(ann['segmentation'])
                 gt_kpts.append(np.array(ann['keypoints']).reshape([17, 3]))
+                gt_masks_areas.append(ann['area'])
 
         if gt_bboxes:
             gt_bboxes = np.array(gt_bboxes, dtype=np.float32)
@@ -104,6 +106,11 @@ class CocoKptDataset(CustomDataset):
         else:
             gt_kpts = np.zeros((0, 17, 3), dtype=np.float32)
 
+        if gt_masks_areas:
+            gt_masks_areas = np.array(gt_masks_areas, dtype=np.float32)
+        else:
+            gt_masks_areas = np.array([], dtype=np.float32)
+
         seg_map = img_info['filename'].replace('jpg', 'png')
 
         ann = dict(
@@ -112,7 +119,8 @@ class CocoKptDataset(CustomDataset):
             bboxes_ignore=gt_bboxes_ignore,
             masks=gt_masks_ann,
             seg_map=seg_map,
-            keypoints=gt_kpts)
+            keypoints=gt_kpts,
+            areas=gt_masks_areas)
 
         return ann
 

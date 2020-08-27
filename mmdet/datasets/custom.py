@@ -145,6 +145,7 @@ class CustomDataset(Dataset):
         results['mask_fields'] = []
         results['seg_fields'] = []
         results['kpt_fields'] = []
+        results['area_fields'] = []
 
     def _filter_imgs(self, min_size=32):
         """Filter images too small."""

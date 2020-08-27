@@ -1,5 +1,5 @@
 # jjcao, todo, make a hierarchy!!! or can handle non loss
-# it is from fcos_kpt_head_rescore_no_centerness.py
+# it is from jqlin's ? with centerness
 
 import torch
 import torch.nn as nn
@@ -7,13 +7,11 @@ import torch.nn.functional as F
 import numpy as np
 from mmcv.cnn import normal_init
 
-from mmdet.core import kpt_target_refine
-from mmdet.core import distance2bbox, force_fp32, multi_apply, multiclass_nms, offset2kpt, multiclass_nms_kpt
+from mmdet.core import (distance2bbox, force_fp32, multi_apply, 
+                        multiclass_nms, offset2kpt, multiclass_nms_kpt)
 from ..builder import HEADS, build_loss
 from mmcv.cnn import ConvModule, Scale, bias_init_with_prob
 from mmcv.ops import DeformConv2d
-
-INF = 1e8
 
 INF = 1e8
 
@@ -53,7 +51,8 @@ class FeatureAdaption(nn.Module):
             kernel_size=kernel_size,
             padding=(kernel_size - 1) // 2,
             deform_groups=deform_groups)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu_1 = nn.ReLU(inplace=True)
+        self.relu_2 = nn.ReLU(inplace=True)
 
     def init_weights(self):
         normal_init(self.conv_offset, std=0.1)
@@ -62,14 +61,13 @@ class FeatureAdaption(nn.Module):
 
     def forward(self, reg_feat, cls_feat, pred_init):
         offset = self.conv_offset(pred_init.detach())
-        reg_feat_refine = self.relu(self.conv_adaption_reg(reg_feat, offset))
-        cls_feat_refine = self.relu(self.conv_adaption_cls(cls_feat, offset))
+        reg_feat_refine = self.relu_1(self.conv_adaption_reg(reg_feat, offset))
+        cls_feat_refine = self.relu_2(self.conv_adaption_cls(cls_feat, offset))
         return reg_feat_refine, cls_feat_refine
 
 
 @HEADS.register_module()
 class SMPRHead(nn.Module):
-
     """
     Fully Convolutional One-Stage Object Detection head from [1]_.
 
@@ -97,21 +95,15 @@ class SMPRHead(nn.Module):
                                  (512, INF)),
                 center_sampling=False,
                 center_sample_radius=1.5,
-                loss_cls=dict(
+                 loss_cls=dict(
                      type='FocalLoss',
                      use_sigmoid=True,
                      gamma=2.0,
                      alpha=0.25,
                      loss_weight=1.0),
-                loss_heatmap=dict(
-                     type='FocalLoss',
-                     use_sigmoid=True,
-                     gamma=2.0,
-                     alpha=0.25,
-                     loss_weight=0.05),
                  loss_kpt_init=dict(type='IoULoss', loss_weight=1.0),
                  loss_kpt_refine=dict(type='IoULoss', loss_weight=1.0),
-                 loss_rescore=dict(
+                 loss_centerness=dict(
                      type='CrossEntropyLoss',
                      use_sigmoid=True,
                      loss_weight=1.0),
@@ -127,12 +119,10 @@ class SMPRHead(nn.Module):
         self.strides = strides
         self.regress_ranges = regress_ranges
         self.loss_cls = build_loss(loss_cls)
-        self.loss_heatmap = build_loss(loss_heatmap)
         # self.loss_bbox = build_loss(loss_bbox)
         self.loss_kpt_init = build_loss(loss_kpt_init)
         self.loss_kpt_refine = build_loss(loss_kpt_refine)
-        self.loss_rescore = build_loss(loss_rescore)
-
+        self.loss_centerness = build_loss(loss_centerness)
         self.conv_cfg = conv_cfg
         self.norm_cfg = norm_cfg
         self.fp16_enabled = False
@@ -145,7 +135,6 @@ class SMPRHead(nn.Module):
     def _init_layers(self):
         self.cls_convs = nn.ModuleList()
         self.reg_convs = nn.ModuleList()
-        self.hm_convs = nn.ModuleList()
         for i in range(self.stacked_convs):
             chn = self.in_channels if i == 0 else self.feat_channels
             self.cls_convs.append(
@@ -168,25 +157,10 @@ class SMPRHead(nn.Module):
                     conv_cfg=self.conv_cfg,
                     norm_cfg=self.norm_cfg,
                     bias=self.norm_cfg is None))
-
-        for i in range(2):
-            chn = self.in_channels if i == 0 else 128
-            self.hm_convs.append(
-                ConvModule(
-                    chn,
-                    128,
-                    3,
-                    stride=1,
-                    padding=1,
-                    conv_cfg=self.conv_cfg,
-                    norm_cfg=self.norm_cfg,
-                    bias=self.norm_cfg is None))
-            
-        self.hm_out = nn.Conv2d(128, 17, 3, padding=1)
         self.fcos_cls = nn.Conv2d(
             self.feat_channels, self.cls_out_channels, 3, padding=1)
         self.fcos_reg = nn.Conv2d(self.feat_channels, 34, 3, padding=1)
-        self.fcos_rescore = nn.Conv2d(self.feat_channels, 1, 3, padding=1)
+        self.fcos_centerness = nn.Conv2d(self.feat_channels, 1, 3, padding=1)
         self.scales_1 = nn.ModuleList([Scale(1.0) for _ in self.strides])
         self.scales_2 = nn.ModuleList([Scale(1.0) for _ in self.strides])
 
@@ -205,12 +179,10 @@ class SMPRHead(nn.Module):
         bias_cls = bias_init_with_prob(0.01)
         normal_init(self.fcos_cls, std=0.01, bias=bias_cls)
         normal_init(self.fcos_reg, std=0.01)
+        normal_init(self.fcos_centerness, std=0.01)
         normal_init(self.fcos_refine_out, std=0.01)
-        normal_init(self.fcos_rescore, std=0.01)
         self.feature_adaption.init_weights()
-        for m in self.hm_convs:
-            normal_init(m.conv, std=0.01)
-        normal_init(self.hm_out, std=0.01, bias=bias_cls)
+
 
     def forward(self, feats):
         return multi_apply(self.forward_single, feats, self.scales_1, self.scales_2, self.fpn_strides)
@@ -231,85 +203,48 @@ class SMPRHead(nn.Module):
         kpt_pred_init = scale_1(self.fcos_reg(reg_feat))
         kpt_refine_feat, cls_refine_feat = self.feature_adaption(reg_feat, cls_feat, kpt_pred_init)
         cls_score = self.fcos_cls(cls_refine_feat)
-        rescore = self.fcos_rescore(cls_refine_feat)
+        centerness = self.fcos_centerness(cls_refine_feat)
 
         kpt_pred_refine = scale_2(self.fcos_refine_out(kpt_refine_feat))
         kpt_pred_refine = kpt_pred_init.detach() + kpt_pred_refine
 
-        # hm_pred only stride == 8
-        if fpn_stride == 8:
-            hm_feat = x
-            for hm_layer in self.hm_convs:
-                hm_feat = hm_layer(hm_feat)
-            hm_pred = self.hm_out(hm_feat)
-        else:
-            hm_pred = None
-
         if not self.training:
             kpt_pred_refine  = kpt_pred_refine * fpn_stride
             kpt_pred_init = kpt_pred_init * fpn_stride
-            return cls_score, kpt_pred_init, kpt_pred_refine, rescore
 
-        return cls_score, kpt_pred_init, kpt_pred_refine, hm_pred, rescore
+        return cls_score, kpt_pred_init, kpt_pred_refine, centerness
 
-    @force_fp32(apply_to=('cls_scores', 'kpt_preds_init', 'kpt_preds_refine', 'rescores'))
+    @force_fp32(apply_to=('cls_scores', 'kpt_preds_init', 'kpt_preds_refine', 'centernesses'))
     def loss(self,
              cls_scores,
              kpt_preds_init,
              kpt_preds_refine,
-             hm_preds,
-             rescores,
+             centernesses,
              gt_bboxes,
              gt_kpts,
              gt_labels,
-             gt_masks_areas,
              img_metas,
              cfg,
              gt_bboxes_ignore=None):
-        assert len(cls_scores) == len(kpt_preds_init) == len(kpt_preds_refine) == len(rescores)
+        assert len(cls_scores) == len(kpt_preds_init) == len(kpt_preds_refine) == len(centernesses)
         featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
-        high, width = hm_preds[0].shape[2:]
-        # import ipdb; ipdb.set_trace()
         all_level_points = self.get_points(featmap_sizes, kpt_preds_init[0].dtype,
                                            kpt_preds_init[0].device)
         labels, bbox_targets, kpt_targets, \
-            kpt_vis_flag, hm_targets = self.fcos_target(all_level_points, 
+            kpt_vis_flag = self.fcos_target(all_level_points, 
                                             gt_bboxes, gt_kpts,
-                                            gt_labels, high, width)
-        
-        # generate kpt proposals 
-        # 通过网络生成的kpt_preds_init，得到5个特征图上每个像素点对应的 kpt proposals
-        # len(kpt_list) = 8
-        # len(kpt_list[0]) = 5
-        # kpt_list[0][0].shape = [10000, 34]
-        # kpt_list[0][1].shape = [2500, 34]
-
-        # len(gt_kpts) = 8
-        # gt_kpts[0].shape = [5, 17, 3]
+                                            gt_labels)
 
         num_imgs = cls_scores[0].size(0)
-        kpt_list = []
-        for i in range(num_imgs):
-            kpt = []
-            for lvl in range(len(kpt_preds_refine)):
-                kpt_pred_offset_init = kpt_preds_init[lvl][i].detach()
-                kpt_pred_offset_init = kpt_pred_offset_init.permute(1, 2, 0).reshape(-1, 34)
-                kpt_pred_offset_init = kpt_pred_offset_init * self.fpn_strides[lvl]
-                kpt.append(offset2kpt(all_level_points[lvl], kpt_pred_offset_init))
-            kpt_list.append(kpt)
-        
-        # generate kpt refine targets
-        labels_refine, kpt_gt_refine, proposals_list, \
-                num_total_pos, max_overlaps_list = kpt_target_refine(kpt_list, \
-                                                  gt_kpts, gt_masks_areas, img_metas, cfg, gt_labels)
-        # import ipdb; ipdb.set_trace()
         # flatten cls_scores, bbox_preds and centerness
         flatten_cls_scores = [
             cls_score.permute(0, 2, 3, 1).reshape(-1, self.cls_out_channels)
             for cls_score in cls_scores
         ]
-        flatten_hm_preds = hm_preds[0].permute(0, 2, 3, 1).contiguous().reshape(-1, 17)
-
+        # flatten_bbox_preds = [
+        #     bbox_pred.permute(0, 2, 3, 1).reshape(-1, 4)
+        #     for bbox_pred in bbox_preds
+        # ]
         flatten_kpt_preds_init = [
             kpt_pred_init.permute(0, 2, 3, 1).reshape(-1, 34)
             for kpt_pred_init in kpt_preds_init
@@ -318,133 +253,98 @@ class SMPRHead(nn.Module):
             kpt_pred_refine.permute(0, 2, 3, 1).reshape(-1, 34)
             for kpt_pred_refine in kpt_preds_refine
         ]
-        flatten_rescores = [
-            rescore.permute(0, 2, 3, 1).reshape(-1)
-            for rescore in rescores
+        flatten_centerness = [
+            centerness.permute(0, 2, 3, 1).reshape(-1)
+            for centerness in centernesses
         ]
-
         flatten_cls_scores = torch.cat(flatten_cls_scores)
+        # flatten_bbox_preds = torch.cat(flatten_bbox_preds)
         flatten_kpt_preds_init = torch.cat(flatten_kpt_preds_init)
         flatten_kpt_preds_refine = torch.cat(flatten_kpt_preds_refine)
-        flatten_rescores = torch.cat(flatten_rescores)
-        
+        flatten_centerness = torch.cat(flatten_centerness)
         flatten_labels = torch.cat(labels)
         flatten_bbox_targets = torch.cat(bbox_targets)
         flatten_kpt_targets = torch.cat(kpt_targets)
         flatten_kpt_vis_flag = torch.cat(kpt_vis_flag)
-        flatten_hm_targets = torch.cat(hm_targets)
-
-        flatten_labels_refine = torch.cat(labels_refine)
-        flatten_kpt_gt_refine = torch.cat(kpt_gt_refine)
-        flatten_max_overlaps = torch.cat(max_overlaps_list)
-
         # repeat points to align with bbox_preds
         flatten_points = torch.cat(
             [points.repeat(num_imgs, 1) for points in all_level_points])
 
-        # import ipdb; ipdb.set_trace()
-        flatten_labels_refine = flatten_labels * flatten_labels_refine
-        pos_inds = flatten_labels_refine.nonzero().reshape(-1)
+        pos_inds = flatten_labels.nonzero().reshape(-1)
         num_pos = len(pos_inds)
-        pos_inds_init = flatten_labels.nonzero().reshape(-1)
-        num_pos_init = len(pos_inds_init)
-
-        # self.loss_cls(flatten_cls_scores, flatten_labels, avg_factor=num_pos_init + num_imgs)
         loss_cls = self.loss_cls(
-            flatten_cls_scores, flatten_labels_refine,
+            flatten_cls_scores, flatten_labels,
             avg_factor=num_pos + num_imgs)  # avoid num_pos is 0
-        # print('loss_cls', loss_cls)
 
-        num_kpts = len(flatten_hm_targets.nonzero().reshape(-1))
-        loss_heatmap = self.loss_heatmap(
-            flatten_hm_preds,
-            flatten_hm_targets,
-            avg_factor=num_kpts + num_imgs)
-        # print('loss_heatmap', loss_heatmap)
-        
-        pos_kpt_preds_init = flatten_kpt_preds_init[pos_inds_init]
+        # pos_bbox_preds = flatten_bbox_preds[pos_inds]
+        pos_centerness = flatten_centerness[pos_inds]
+        pos_kpt_preds_init = flatten_kpt_preds_init[pos_inds]
         pos_kpt_preds_refine = flatten_kpt_preds_refine[pos_inds]
-        pos_rescores = flatten_rescores[pos_inds]
 
-        if num_pos_init > 0:
-            # print('num_pos_init', num_pos_init)
+        if num_pos > 0:
+            pos_bbox_targets = flatten_bbox_targets[pos_inds]
+            pos_centerness_targets = self.centerness_target(pos_bbox_targets)
+            pos_points = flatten_points[pos_inds]
+            # pos_decoded_bbox_preds = distance2bbox(pos_points, pos_bbox_preds)
+            # pos_decoded_target_preds = distance2bbox(pos_points,
+            #                                          pos_bbox_targets)
+    
+            pos_kpt_targets = flatten_kpt_targets[pos_inds]
+            pos_kpt_vis_flag = flatten_kpt_vis_flag[pos_inds]
             
-            pos_max_overlaps_init = flatten_max_overlaps[pos_inds_init]
-
-            pos_points_init = flatten_points[pos_inds_init]
-            
-            pos_kpt_targets_init = flatten_kpt_targets[pos_inds_init]
-            pos_kpt_vis_flag_init = flatten_kpt_vis_flag[pos_inds_init]
-
-            pos_decoded_kpt_preds_init = offset2kpt(pos_points_init, pos_kpt_preds_init)
-            pos_decoded_kpt_targets_init = offset2kpt(pos_points_init, pos_kpt_targets_init)
+            pos_decoded_kpt_preds_init = offset2kpt(pos_points, pos_kpt_preds_init)
+            pos_decoded_kpt_preds_refine = offset2kpt(pos_points, pos_kpt_preds_refine)
+            pos_decoded_kpt_targets = offset2kpt(pos_points, pos_kpt_targets)
 
             loss_kpt_init = self.loss_kpt_init(
                 pos_decoded_kpt_preds_init,
-                pos_decoded_kpt_targets_init,
-                pos_kpt_vis_flag_init,
-                weight=pos_max_overlaps_init,
-                avg_factor=pos_max_overlaps_init.sum()
+                pos_decoded_kpt_targets,
+                pos_kpt_vis_flag,
+                weight=pos_centerness_targets,
+                avg_factor=pos_centerness_targets.sum()
             )
-            # print('loss_kpt_init', loss_kpt_init)
 
-            if num_pos > 0:
-                # print('num_pos', num_pos)
-                pos_max_overlaps = flatten_max_overlaps[pos_inds]
+            loss_kpt_refine = self.loss_kpt_refine(
+                pos_decoded_kpt_preds_refine,
+                pos_decoded_kpt_targets,
+                pos_kpt_vis_flag,
+                weight=pos_centerness_targets,
+                avg_factor=pos_centerness_targets.sum()
+            )
 
-                pos_points = flatten_points[pos_inds]
-                pos_kpt_targets = flatten_kpt_targets[pos_inds]
-                pos_kpt_vis_flag = flatten_kpt_vis_flag[pos_inds]
-                pos_decoded_kpt_preds_refine = offset2kpt(pos_points, pos_kpt_preds_refine)
-                pos_decoded_kpt_targets = offset2kpt(pos_points, pos_kpt_targets)
-
-                loss_kpt_refine = self.loss_kpt_refine(
-                    pos_decoded_kpt_preds_refine,
-                    pos_decoded_kpt_targets,
-                    pos_kpt_vis_flag,
-                    weight=pos_max_overlaps,
-                    avg_factor=pos_max_overlaps.sum()
-                )
-                # print('loss_kpt_refine', loss_kpt_refine)
-
-                loss_rescore = self.loss_rescore(pos_rescores, pos_max_overlaps)
-                # print('**************************')
-            else:
-                loss_kpt_refine = pos_kpt_preds_refine.sum()
-
-                pos_max_overlaps_init = flatten_max_overlaps[pos_inds_init]
-                pos_rescores_init = flatten_rescores[pos_inds_init]
-                loss_rescore = self.loss_rescore(pos_rescores_init, pos_max_overlaps_init)
-                
-                # print('--------------------------')
+            # centerness weighted iou loss
+            # loss_bbox = self.loss_bbox(
+            #     pos_decoded_bbox_preds,
+            #     pos_decoded_target_preds,
+            #     weight=pos_centerness_targets,
+            #     avg_factor=pos_centerness_targets.sum())
+            loss_centerness = self.loss_centerness(pos_centerness,
+                                                   pos_centerness_targets)
         else:
+            # loss_bbox = pos_bbox_preds.sum()
             loss_kpt_init = pos_kpt_preds_init.sum()
             loss_kpt_refine = pos_kpt_preds_refine.sum()
-            loss_rescore = pos_rescores.sum()
+            loss_centerness = pos_centerness.sum()
 
         return dict(
             loss_cls=loss_cls,
-            loss_heatmap=loss_heatmap,
+            # loss_bbox=loss_bbox,
             loss_kpt_init=loss_kpt_init,
             loss_kpt_refine=loss_kpt_refine,
-            loss_rescore=loss_rescore)
+            loss_centerness=loss_centerness)
 
-    @force_fp32(apply_to=('cls_scores', 'kpt_preds', 'rescores'))
+    @force_fp32(apply_to=('cls_scores', 'kpt_preds', 'centernesses'))
     def get_bboxes(self,
                    cls_scores,
                    kpt_preds_init,
                    kpt_preds_refine,
-                   rescores,
+                   centernesses,
                    img_metas,
                    cfg,
                    rescale=None):
         assert len(cls_scores) == len(kpt_preds_refine) == len(kpt_preds_init)
-
-        # len(cls_scores) = 5
-        # cls_scores[0].shape = [1, 1, 100, 152]
         num_levels = len(cls_scores)
         kpt_preds = kpt_preds_refine
-        # kpt_preds = kpt_preds_init
 
         featmap_sizes = [featmap.size()[-2:] for featmap in cls_scores]
         mlvl_points = self.get_points(featmap_sizes, kpt_preds[0].dtype,
@@ -457,14 +357,13 @@ class SMPRHead(nn.Module):
             kpt_pred_list = [
                 kpt_preds[i][img_id].detach() for i in range(num_levels)
             ]
-            rescore_pred_list = [
-                rescores[i][img_id].detach() for i in range(num_levels)
+            centerness_pred_list = [
+                centernesses[i][img_id].detach() for i in range(num_levels)
             ]
-
             img_shape = img_metas[img_id]['img_shape']
             scale_factor = img_metas[img_id]['scale_factor']
             det_bboxes = self.get_bboxes_single(cls_score_list, kpt_pred_list,
-                                                rescore_pred_list,
+                                                centerness_pred_list,
                                                 mlvl_points, img_shape,
                                                 scale_factor, cfg, rescale)
             result_list.append(det_bboxes)
@@ -474,7 +373,7 @@ class SMPRHead(nn.Module):
     def get_bboxes_single(self,
                           cls_scores,
                           kpt_preds,
-                          rescores,
+                          centernesses,
                           mlvl_points,
                           img_shape,
                           scale_factor,
@@ -483,46 +382,43 @@ class SMPRHead(nn.Module):
         assert len(cls_scores) == len(kpt_preds) == len(mlvl_points)
         mlvl_bboxes = []
         mlvl_scores = []
+        mlvl_centerness = []
         mlvl_kpts = []
-        mlvl_rescore = []
-        # 在每个level上得到测试结果
-        for cls_score, kpt_pred, rescore, points in zip(
-                cls_scores, kpt_preds, rescores, mlvl_points):
+        for cls_score, kpt_pred, centerness, points in zip(
+                cls_scores, kpt_preds, centernesses, mlvl_points):
             assert cls_score.size()[-2:] == kpt_pred.size()[-2:]
             scores = cls_score.permute(1, 2, 0).reshape(
                 -1, self.cls_out_channels).sigmoid()
-            rescore = rescore.permute(1, 2, 0).reshape(-1).sigmoid()
+            centerness = centerness.permute(1, 2, 0).reshape(-1).sigmoid()
+
             kpt_pred = kpt_pred.permute(1, 2, 0).reshape(-1, 34)
             nms_pre = cfg.get('nms_pre', -1)
             if nms_pre > 0 and scores.shape[0] > nms_pre:
-                # scores.shape = [15200, 1]
-                # max_scores.shape = [15200]
-                # max_scores, _ = rescore[:, None].max(dim=1)
-                # max_scores, _ = (scores * centerness[:, None]).max(dim=1)
-                max_scores, _ = (scores * rescore[:, None]).max(dim=1)
+                max_scores, _ = (scores * centerness[:, None]).max(dim=1)
                 _, topk_inds = max_scores.topk(nms_pre)
                 points = points[topk_inds, :]
                 kpt_pred = kpt_pred[topk_inds, :]
                 scores = scores[topk_inds, :]
-                rescore = rescore[topk_inds]
+                centerness = centerness[topk_inds]
             kpts = offset2kpt(points, kpt_pred, max_shape=img_shape)
             bboxes = self.get_pesudo_bbox(kpts)
             mlvl_bboxes.append(bboxes)
             mlvl_kpts.append(kpts)
             mlvl_scores.append(scores)
-            mlvl_rescore.append(rescore)
+            mlvl_centerness.append(centerness)
         mlvl_bboxes = torch.cat(mlvl_bboxes)
         mlvl_kpts = torch.cat(mlvl_kpts)
         if rescale:
             mlvl_bboxes /= mlvl_bboxes.new_tensor(scale_factor)
-            mlvl_kpts /= mlvl_kpts.new_tensor(scale_factor)
+            #mlvl_kpts /= mlvl_kpts.new_tensor(scale_factor)
+            mlvl_kpts /= scale_factor[0]
+            # mlvl_kpts[:, :, 0] /= scale_factor[0]
+            # mlvl_kpts[:, :, 1] /= scale_factor[1]
 
         mlvl_scores = torch.cat(mlvl_scores)
         padding = mlvl_scores.new_zeros(mlvl_scores.shape[0], 1)
         mlvl_scores = torch.cat([padding, mlvl_scores], dim=1)
-
-        mlvl_rescore = torch.cat(mlvl_rescore)
-
+        mlvl_centerness = torch.cat(mlvl_centerness)
         det_bboxes, det_kpts, det_labels = multiclass_nms_kpt(
             mlvl_bboxes,
             mlvl_kpts,
@@ -530,7 +426,7 @@ class SMPRHead(nn.Module):
             cfg.score_thr,
             cfg.nms,
             cfg.max_per_img,
-            score_factors=mlvl_rescore)
+            score_factors=mlvl_centerness)
         return det_bboxes, det_kpts, det_labels
 
     def get_pesudo_bbox(self, kpts):
@@ -574,7 +470,7 @@ class SMPRHead(nn.Module):
             (x.reshape(-1), y.reshape(-1)), dim=-1) + stride // 2
         return points
 
-    def fcos_target(self, points, gt_bboxes_list, gt_kpts_list, gt_labels_list, high, width):
+    def fcos_target(self, points, gt_bboxes_list, gt_kpts_list, gt_labels_list):
         assert len(points) == len(self.regress_ranges)
         num_levels = len(points)
         # expand regress ranges to align with points
@@ -587,19 +483,16 @@ class SMPRHead(nn.Module):
         concat_points = torch.cat(points, dim=0)
         # the number of points per img, per lvl
         num_points = [center.size(0) for center in points]
-        # the shape of hm_feat
         # get labels and bbox_targets of each image
         labels_list, bbox_targets_list, kpt_targets_list, \
-            kpt_vis_flag_list, hm_targets_list = multi_apply(
+            kpt_vis_flag_list = multi_apply(
             self.fcos_target_single,
             gt_bboxes_list,
             gt_kpts_list,
             gt_labels_list,
             points=concat_points,
             regress_ranges=concat_regress_ranges,
-            num_points_per_lvl=num_points,
-            h=high,
-            w=width)
+            num_points_per_lvl=num_points)
         
 
         # split to per img, per level
@@ -639,10 +532,10 @@ class SMPRHead(nn.Module):
                 torch.cat(
                     [kpt_vis_flag[i] for kpt_vis_flag in kpt_vis_flag_list]))
 
-        return concat_lvl_labels, concat_lvl_bbox_targets, concat_lvl_kpt_targets, concat_lvl_kpt_vis_flag, hm_targets_list
+        return concat_lvl_labels, concat_lvl_bbox_targets, concat_lvl_kpt_targets, concat_lvl_kpt_vis_flag
 
     def fcos_target_single(self, gt_bboxes, gt_kpts, gt_labels, points, regress_ranges,
-                           num_points_per_lvl, h, w):
+                           num_points_per_lvl):
         assert gt_bboxes.shape[0] == gt_kpts.shape[0]
         num_points = points.size(0)
         num_gts = gt_labels.size(0)
@@ -650,8 +543,7 @@ class SMPRHead(nn.Module):
             return gt_labels.new_zeros(num_points), \
                    gt_bboxes.new_zeros((num_points, 4)), \
                    gt_kpts.new_zeros((num_points, 34)), \
-                   gt_kpts.new_zeros((num_points, 34)), \
-                   gt_labels.new_zeros(h * w)
+                   gt_kpts.new_zeros((num_points, 34))
 
         areas = (gt_bboxes[:, 2] - gt_bboxes[:, 0] + 1) * (
             gt_bboxes[:, 3] - gt_bboxes[:, 1] + 1)
@@ -670,16 +562,6 @@ class SMPRHead(nn.Module):
         top = ys - gt_bboxes[..., 1]
         bottom = gt_bboxes[..., 3] - ys
         bbox_targets = torch.stack((left, top, right, bottom), -1)
-
-        # generate hm target
-        hm_targets = gt_labels.new_zeros((h, w))
-        for i in range(num_gts):
-            for j in range(17):
-                if gt_kpts[i, j, 2] > 0:
-                    x = torch.round((gt_kpts[i, j, 0] - 4) / 8).int()
-                    y = torch.round((gt_kpts[i, j, 1] - 4) / 8).int()
-                    hm_targets[y, x] = j + 1
-        hm_targets = hm_targets.reshape(-1)
 
         # prepar kpt coordinate and vis flag
         new_kpts = gt_kpts.new_zeros(num_gts, 34)
@@ -791,5 +673,13 @@ class SMPRHead(nn.Module):
         kpt_targets = kpt_targets[range(num_points), min_area_inds]
         kpt_vis_flag = kpt_vis_flag[range(num_points), min_area_inds]
 
-        return labels, bbox_targets, kpt_targets, kpt_vis_flag, hm_targets
+        return labels, bbox_targets, kpt_targets, kpt_vis_flag
 
+    def centerness_target(self, pos_bbox_targets):
+        # only calculate pos centerness targets, otherwise there may be nan
+        left_right = pos_bbox_targets[:, [0, 2]]
+        top_bottom = pos_bbox_targets[:, [1, 3]]
+        centerness_targets = (
+            left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0]) * (
+                top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
+        return torch.sqrt(centerness_targets)
